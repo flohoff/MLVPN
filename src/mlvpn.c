@@ -298,37 +298,42 @@ mlvpn_rtun_recv_data(mlvpn_tunnel_t *tun, mlvpn_pkt_t *inpkt)
 {
     int ret;
     uint32_t drained;
+
     if (reorder_buffer == NULL || !inpkt->reorder) {
         mlvpn_rtun_inject_tuntap(inpkt);
         return 1;
-    } else {
-        mlvpn_pkt_t *pkt = mlvpn_freebuffer_get(freebuf);
-        if (!pkt) {
-            log_warnx("reorder", "freebuffer full: reorder_buffer_size must be increased.");
-            mlvpn_rtun_inject_tuntap(inpkt);
-            return 1;
-        }
-        memcpy(pkt, inpkt, sizeof(mlvpn_pkt_t));
-        ret = mlvpn_reorder_insert(reorder_buffer, pkt);
-        if (ret == -1) {
-            log_warnx("net", "reorder_buffer_insert failed: %d", ret);
-            mlvpn_reorder_reset(reorder_buffer);
-            drained = mlvpn_rtun_reorder_drain(0);
-        } else if (ret == -2) {
-            /* We have received a packet out of order just
-             * after the forced drain (packet loss)
-             * Just inject the packet as is
-             */
-            mlvpn_rtun_inject_tuntap(inpkt);
-            return 1;
-        } else {
-            drained = mlvpn_rtun_reorder_drain(1);
-        }
-        if (freebuf->used > 0) {
-            ev_timer_again(EV_A_ &reorder_drain_timeout);
-        }
-        //log_debug("reorder", "drained %d packets", drained);
     }
+
+    mlvpn_pkt_t *pkt = mlvpn_freebuffer_get(freebuf);
+
+    if (!pkt) {
+        log_warnx("reorder", "freebuffer full: reorder_buffer_size must be increased.");
+        mlvpn_rtun_inject_tuntap(inpkt);
+        return 1;
+    }
+
+    memcpy(pkt, inpkt, sizeof(mlvpn_pkt_t));
+    ret = mlvpn_reorder_insert(reorder_buffer, pkt);
+
+    if (ret == -1) {
+        log_warnx("net", "reorder_buffer_insert failed: %d", ret);
+        mlvpn_reorder_reset(reorder_buffer);
+        drained = mlvpn_rtun_reorder_drain(0);
+    } else if (ret == -2) {
+        /* We have received a packet out of order just
+         * after the forced drain (packet loss)
+         * Just inject the packet as is
+         */
+        mlvpn_rtun_inject_tuntap(inpkt);
+        return 1;
+    } else {
+        drained=mlvpn_rtun_reorder_drain(1);
+    }
+
+    if (freebuf->used > 0) {
+        ev_timer_again(EV_A_ &reorder_drain_timeout);
+    }
+
     return drained;
 }
 
