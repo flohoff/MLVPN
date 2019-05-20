@@ -1280,12 +1280,18 @@ mlvpn_rtun_check_timeout(EV_P_ ev_timer *w, int revents)
     mlvpn_rtun_check_lossy(t);
 }
 
+static double reorder_timeout_floating = 0.8;
+
+/* Reorder should timeout based on jitter or difference between fastest
+ * and slowest link - Whatever is greater
+ */
 static void
 mlvpn_rtun_adjust_reorder_timeout(EV_P_ ev_timer *w, int revents)
 {
     mlvpn_tunnel_t *t;
-    double max_srtt = 0.0;
-    double tmp;
+    double max_rttvar = 0;
+    double max_srtt = 0;
+    double min_srtt = 99999;
 
     LIST_FOREACH(t, &rtuns, entries)
     {
@@ -1294,23 +1300,31 @@ mlvpn_rtun_adjust_reorder_timeout(EV_P_ ev_timer *w, int revents)
             * reorder timeout algorithm
             */
             if (!t->fallback_only && t->rtt_hit) {
-                tmp = t->srtt + (4 * t->rttvar);
-                max_srtt = max_srtt > tmp ? max_srtt : tmp;
+		if (max_srtt <= t->srtt) {
+		    max_srtt = t->srtt;
+		    max_rttvar = t->rttvar;
+		}
+		min_srtt = MIN(min_srtt, t->srtt);
             }
         }
     }
 
-    /* Update the reorder algorithm */
+#define REORDER_FLOAT_RANGE	10
+
     if (max_srtt > 0) {
-        /* Apply a factor to the srtt in order to get a window */
-        max_srtt *= 2.2;
-        log_debug("reorder", "adjusting reordering drain timeout to %.0fms",
-            max_srtt);
-        reorder_drain_timeout.repeat = max_srtt / 1000.0;
+	double timeout = max_srtt - min_srtt + max_rttvar;
+
+	reorder_timeout_floating=(reorder_timeout_floating*(REORDER_FLOAT_RANGE-1)+timeout)/REORDER_FLOAT_RANGE;
+
+        log_debug("reorder", "adjusting reordering drain timeout to %.0fms maxsrtt %.0fms maxrttvar %.0fms minsrtt %.0fms",
+            reorder_timeout_floating, max_srtt, max_rttvar, min_srtt);
+
+        reorder_drain_timeout.repeat = reorder_timeout_floating / 1000;
     } else {
         reorder_drain_timeout.repeat = 0.8; /* Conservative 800ms shot */
     }
 }
+
 
 static void
 tuntap_io_event(EV_P_ ev_io *w, int revents)
