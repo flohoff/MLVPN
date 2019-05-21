@@ -121,6 +121,12 @@ struct mlvpn_status_s
     int initialized;
     time_t start_time;
     time_t last_reload;
+    struct {
+	    uint32_t allocfail;
+	    uint32_t direct;
+	    uint32_t reorderinsertfail;
+	    uint32_t reordertimeout;
+    } stats;
 };
 
 enum chap_status {

@@ -95,8 +95,13 @@ struct mlvpn_status_s mlvpn_status = {
     .last_reload = 0,
     .fallback_mode = 0,
     .connected = 0,
-    .initialized = 0
+    .initialized = 0,
+    .stats.allocfail = 0,
+    .stats.direct = 0,
+    .stats.reorderinsertfail = 0,
+    .stats.reordertimeout = 0
 };
+
 struct mlvpn_options_s mlvpn_options = {
     .change_process_title = 1,
     .process_name = "mlvpn",
@@ -229,6 +234,7 @@ static void
 mlvpn_rtun_reorder_drain_timeout(EV_P_ ev_timer *w, int revents)
 {
     log_debug("reorder", "reorder timeout. Packet loss?");
+    mlvpn_status.stats.reordertimeout++;
     mlvpn_rtun_reorder_drain(0);
     if (freebuf->used == 0) {
         ev_timer_stop(EV_A_ w);
@@ -304,6 +310,7 @@ mlvpn_rtun_recv_data(mlvpn_tunnel_t *tun, mlvpn_pkt_t *inpkt)
 
     if (reorder_buffer == NULL || !inpkt->reorder) {
         mlvpn_rtun_inject_tuntap(inpkt);
+        mlvpn_status.stats.direct++;
         return 1;
     }
 
@@ -311,6 +318,7 @@ mlvpn_rtun_recv_data(mlvpn_tunnel_t *tun, mlvpn_pkt_t *inpkt)
 
     if (!pkt) {
         log_warnx("reorder", "freebuffer full: reorder_buffer_size must be increased.");
+        mlvpn_status.stats.allocfail++;
         mlvpn_rtun_inject_tuntap(inpkt);
         return 1;
     }
@@ -320,6 +328,7 @@ mlvpn_rtun_recv_data(mlvpn_tunnel_t *tun, mlvpn_pkt_t *inpkt)
 
     if (ret == -1) {
         log_warnx("net", "reorder_buffer_insert failed: %d", ret);
+        mlvpn_status.stats.reorderinsertfail++;
         mlvpn_reorder_reset(reorder_buffer);
         drained = mlvpn_rtun_reorder_drain(0);
     } else if (ret == -2) {
@@ -328,6 +337,7 @@ mlvpn_rtun_recv_data(mlvpn_tunnel_t *tun, mlvpn_pkt_t *inpkt)
          * Just inject the packet as is
          */
         mlvpn_rtun_inject_tuntap(inpkt);
+        mlvpn_status.stats.direct++;
         return 1;
     } else {
         drained=mlvpn_rtun_reorder_drain(1);
@@ -777,7 +787,7 @@ mlvpn_rtun_recalc_weight_bandwidth()
 /* Based on tunnel rtt, compute a "weight" value
  * to balance correctly the round robin rtun_choose.
  */
-#define WRR_SRTT_SPREAD    4
+#define WRR_SRTT_SPREAD    8
 static void
 mlvpn_rtun_recalc_weight_rtt()
 {
@@ -829,6 +839,16 @@ static void
 mlvpn_statistics_log()
 {
     mlvpn_tunnel_t *t;
+    log_info("stats", "total allocfail %u direct %u reorderinsertfail %d reordertimeout %u",
+		    mlvpn_status.stats.allocfail,
+		    mlvpn_status.stats.direct,
+		    mlvpn_status.stats.reorderinsertfail,
+		    mlvpn_status.stats.reordertimeout);
+
+    mlvpn_status.stats.allocfail=0;
+    mlvpn_status.stats.direct=0;
+    mlvpn_status.stats.reorderinsertfail=0;
+    mlvpn_status.stats.reordertimeout=0;
 
     LIST_FOREACH(t, &rtuns, entries)
     {
