@@ -9,7 +9,6 @@ config.h*
 config.log
 config.status
 configure
-debian/
 doc/build
 doc/examples/mlvpn.conf
 doc/examples/mlvpn.rc
@@ -28,3 +27,4 @@ test/
 *.swo
 *.tmp
 mlvpn-*.tar.gz
+build/
