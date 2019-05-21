@@ -162,12 +162,21 @@ typedef struct mlvpn_tunnel_s
     uint64_t recvpackets; /* 64bit packets recv counter */
     uint64_t sentbytes;   /* 64bit bytes sent counter */
     uint64_t recvbytes;   /* 64bit bytes recv counter */
+    struct {
+        uint64_t sentpackets; /* 64bit packets sent counter */
+        uint64_t recvpackets; /* 64bit packets recv counter */
+        uint64_t sentbytes;   /* 64bit bytes sent counter */
+        uint64_t recvbytes;   /* 64bit bytes recv counter */
+    } statslast;
     uint32_t timeout;     /* configured timeout in seconds */
     uint32_t bandwidth;   /* bandwidth in bytes per second */
+
     circular_buffer_t *sbuf;    /* send buffer */
     circular_buffer_t *hpsbuf;  /* high priority buffer */
+
     struct addrinfo *addrinfo;
     enum chap_status status;    /* Auth status */
+
     ev_tstamp last_activity;
     ev_tstamp last_connection_attempt;
     ev_tstamp next_keepalive;

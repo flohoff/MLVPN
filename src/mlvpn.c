@@ -83,6 +83,7 @@ struct ev_loop *loop;
 static ev_timer reorder_drain_timeout;
 static ev_timer reorder_adjust_rtt_timeout;
 static ev_timer wrr_rtt_recalc_timeout;
+static ev_timer statistics_log_timeout;
 char *status_command = NULL;
 char *process_title = NULL;
 int logdebug = 0;
@@ -823,6 +824,30 @@ mlvpn_rtun_recalc_weight_rtt()
     mlvpn_rtun_wrr_reset(&rtuns, mlvpn_status.fallback_mode);
 }
 
+#define STATS_INTERVAL 5
+static void
+mlvpn_statistics_log()
+{
+    mlvpn_tunnel_t *t;
+
+    LIST_FOREACH(t, &rtuns, entries)
+    {
+       int loss = mlvpn_loss_ratio(t);
+       log_info("stats", "%s status %d weight %5.1f rtt %5.0f rttvar %4.0f loss %d%% pkt/s %5.0f %5.0f KBits/s %5.1f %5.1f",
+           t->name, t->status, t->weight, t->srtt, t->rttvar, loss,
+           (double) (t->sentpackets-t->statslast.sentpackets)/STATS_INTERVAL,
+           (double) (t->recvpackets-t->statslast.recvpackets)/STATS_INTERVAL,
+           (double) (t->sentbytes-t->statslast.sentbytes)/STATS_INTERVAL/1024*8,
+           (double) (t->recvbytes-t->statslast.recvbytes)/STATS_INTERVAL/1024*8
+       );
+
+       t->statslast.sentpackets=t->sentpackets;
+       t->statslast.recvpackets=t->recvpackets;
+       t->statslast.sentbytes=t->sentbytes;
+       t->statslast.recvbytes=t->recvbytes;
+
+    }
+}
 
 static int
 mlvpn_rtun_bind(mlvpn_tunnel_t *t)
@@ -1605,6 +1630,9 @@ main(int argc, char **argv)
 
     ev_timer_init(&wrr_rtt_recalc_timeout, mlvpn_rtun_recalc_weight_rtt, 0., 1.0);
     ev_timer_start(EV_A_ &wrr_rtt_recalc_timeout);
+
+    ev_timer_init(&statistics_log_timeout, mlvpn_statistics_log, 0., STATS_INTERVAL);
+    ev_timer_start(EV_A_ &statistics_log_timeout);
 
     priv_set_running_state();
 
