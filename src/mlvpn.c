@@ -82,6 +82,7 @@ static char **saved_argv;
 struct ev_loop *loop;
 static ev_timer reorder_drain_timeout;
 static ev_timer reorder_adjust_rtt_timeout;
+static ev_timer wrr_rtt_recalc_timeout;
 char *status_command = NULL;
 char *process_title = NULL;
 int logdebug = 0;
@@ -154,7 +155,8 @@ static int mlvpn_rtun_send(mlvpn_tunnel_t *tun, circular_buffer_t *pktbuf);
 static void mlvpn_rtun_send_auth(mlvpn_tunnel_t *t);
 static void mlvpn_rtun_status_up(mlvpn_tunnel_t *t);
 static void mlvpn_rtun_tick_connect(mlvpn_tunnel_t *t);
-static void mlvpn_rtun_recalc_weight();
+static void mlvpn_rtun_recalc_weight_bandwidth();
+static void mlvpn_rtun_recalc_weight_rtt();
 static void mlvpn_update_status();
 static int mlvpn_rtun_bind(mlvpn_tunnel_t *t);
 static void update_process_title();
@@ -739,7 +741,7 @@ mlvpn_rtun_drop(mlvpn_tunnel_t *t)
  * to balance correctly the round robin rtun_choose.
  */
 static void
-mlvpn_rtun_recalc_weight()
+mlvpn_rtun_recalc_weight_bandwidth()
 {
     mlvpn_tunnel_t *t;
     uint32_t bandwidth_total = 0;
@@ -770,6 +772,57 @@ mlvpn_rtun_recalc_weight()
         }
     }
 }
+
+/* Based on tunnel rtt, compute a "weight" value
+ * to balance correctly the round robin rtun_choose.
+ */
+#define WRR_SRTT_SPREAD    4
+static void
+mlvpn_rtun_recalc_weight_rtt()
+{
+    mlvpn_tunnel_t *t;
+    double minrtt=99999;
+    double maxrtt=10;
+    double totalweight=0;
+
+    LIST_FOREACH(t, &rtuns, entries)
+    {
+       if (t->status != MLVPN_AUTHOK)
+           continue;
+
+       minrtt = MIN(t->srtt, minrtt);
+       maxrtt = MAX(t->srtt, maxrtt);
+    }
+
+    LIST_FOREACH(t, &rtuns, entries)
+    {
+       if (t->status != MLVPN_AUTHOK)
+           continue;
+
+       /* If we havent got a measurement - use max we have */
+       double rtt=t->rtt_hit ? t->srtt : maxrtt;
+       double weight=(maxrtt-rtt)*WRR_SRTT_SPREAD+(maxrtt-minrtt);
+       totalweight+=weight;
+    }
+
+    totalweight++;
+
+    LIST_FOREACH(t, &rtuns, entries)
+    {
+       double rtt=t->rtt_hit ? t->srtt : maxrtt;
+       double weight=(maxrtt-rtt)*WRR_SRTT_SPREAD+(maxrtt-minrtt);
+
+       if (t->status != MLVPN_AUTHOK)
+           continue;
+
+       t->weight = weight/totalweight*100;
+
+       log_debug("wrr", "%s weight = %0.2f rtt = %.0f rttvar = %.0f", t->name, t->weight, t->srtt, t->rttvar);
+    }
+
+    mlvpn_rtun_wrr_reset(&rtuns, mlvpn_status.fallback_mode);
+}
+
 
 static int
 mlvpn_rtun_bind(mlvpn_tunnel_t *t)
@@ -1338,7 +1391,7 @@ mlvpn_config_reload(EV_P_ ev_signal *w, int revents)
         } else {
             if (time(&mlvpn_status.last_reload) == -1)
                 log_warn("config", "last_reload time set failed");
-            mlvpn_rtun_recalc_weight();
+            mlvpn_rtun_recalc_weight_bandwidth();
         }
     } else {
         log_warn("config", "open failed");
@@ -1533,9 +1586,11 @@ main(int argc, char **argv)
     ev_io_set(&tuntap.io_write, tuntap.fd, EV_WRITE);
     ev_io_start(loop, &tuntap.io_read);
 
-    ev_timer_init(&reorder_adjust_rtt_timeout,
-        mlvpn_rtun_adjust_reorder_timeout, 0., 1.0);
+    ev_timer_init(&reorder_adjust_rtt_timeout, mlvpn_rtun_adjust_reorder_timeout, 0., 1.0);
     ev_timer_start(EV_A_ &reorder_adjust_rtt_timeout);
+
+    ev_timer_init(&wrr_rtt_recalc_timeout, mlvpn_rtun_recalc_weight_rtt, 0., 1.0);
+    ev_timer_start(EV_A_ &wrr_rtt_recalc_timeout);
 
     priv_set_running_state();
 
@@ -1551,7 +1606,7 @@ main(int argc, char **argv)
 #endif
 
     /* re-compute rtun weight based on bandwidth allocation */
-    mlvpn_rtun_recalc_weight();
+    mlvpn_rtun_recalc_weight_bandwidth();
 
     /* Last check before running */
     if (getppid() == 1)
