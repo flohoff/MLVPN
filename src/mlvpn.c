@@ -1231,11 +1231,75 @@ mlvpn_rtun_tick_connect(mlvpn_tunnel_t *t)
     }
 }
 
+u_char mlvpn_flow_selector(u_char *data, uint32_t len) {
+	u_char	selector;
+
+	if (len < 24)
+		return 0;
+
+	selector=data[12]^data[13]^data[14]^data[15]^
+		data[16]^data[17]^data[18]^data[19];
+
+	u_char protocol=data[9];
+
+	/* 17 == UDP, 6 == TCP 
+	 *
+	 * UDP and TCP has source and destination ports
+	 *
+	 */
+	if (protocol == 17 || protocol == 6) {
+		selector^=data[20]^data[21]^data[22]^data[23];
+	}
+
+	if (protocol == 17 || protocol == 6) {
+		log_debug("selector", "selector %u src %u.%u.%u.%u dest %u.%u.%u.%u proto %u srcport %u dstport %u",
+				selector,
+				data[12], data[13], data[14], data[15],
+				data[16], data[17], data[18], data[19],
+				protocol,
+				data[20]<<8|data[21],
+				data[22]<<8|data[23]);
+	} else {
+		log_debug("selector", "selector %u src %u.%u.%u.%u dest %u.%u.%u.%u proto %u",
+				selector,
+				data[12], data[13], data[14], data[15],
+				data[16], data[17], data[18], data[19],
+				protocol);
+	}
+
+	return selector;
+}
+
 mlvpn_tunnel_t *
-mlvpn_rtun_choose()
+mlvpn_rtun_choose(u_char *data, uint32_t len)
 {
-    mlvpn_tunnel_t *tun;
-    tun = mlvpn_rtun_wrr_choose();
+    mlvpn_tunnel_t *tun=NULL;
+    int tunavail=0;
+    int index=0,count=0;
+    //tun = mlvpn_rtun_wrr_choose();
+
+    LIST_FOREACH(tun, &rtuns, entries) {
+        if (tun->status == MLVPN_AUTHOK)
+	      tunavail++;
+    }
+
+    u_char selector=mlvpn_flow_selector(data, len);
+    index=selector % tunavail;
+
+    LIST_FOREACH(tun, &rtuns, entries) {
+        if (tun->status != MLVPN_AUTHOK)
+	      continue;
+	if (count++ == index)
+		break;
+    }
+
+    if (tun == NULL) {
+	log_warnx("flowselect", "tunnel is null");
+	tun=mlvpn_rtun_wrr_choose();
+    }
+
+    log_debug("flowselect", "%s selector %d avail %d index %d", tun->name, selector, tunavail, index);
+
     return tun;
 }
 
