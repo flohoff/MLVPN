@@ -1270,37 +1270,44 @@ u_char mlvpn_flow_selector(u_char *data, uint32_t len) {
 	return selector;
 }
 
-mlvpn_tunnel_t *
-mlvpn_rtun_choose(u_char *data, uint32_t len)
-{
-    mlvpn_tunnel_t *tun=NULL;
-    int tunavail=0;
-    int index=0,count=0;
-    //tun = mlvpn_rtun_wrr_choose();
+mlvpn_tunnel_t *mlvpn_rtun_choose(u_char *data, uint32_t len) {
+	mlvpn_tunnel_t *tun=NULL;
+	int tunavail=0;
+	int tuntotal=0;
+	int fallback=0;
+	int index=0,count=0;
+	//tun = mlvpn_rtun_wrr_choose();
 
-    LIST_FOREACH(tun, &rtuns, entries) {
-        if (tun->status == MLVPN_AUTHOK)
-	      tunavail++;
-    }
+	LIST_FOREACH(tun, &rtuns, entries) {
+	tuntotal++;
+	if (tun->status == MLVPN_AUTHOK)
+		tunavail++;
+	}
 
-    u_char selector=mlvpn_flow_selector(data, len);
-    index=selector % tunavail;
+	u_char selector=mlvpn_flow_selector(data, len);
 
-    LIST_FOREACH(tun, &rtuns, entries) {
-        if (tun->status != MLVPN_AUTHOK)
-	      continue;
-	if (count++ == index)
-		break;
-    }
+	if (tunavail == 0) {
+		tunavail=tuntotal;
+		fallback=1;
+	}
 
-    if (tun == NULL) {
-	log_warnx("flowselect", "tunnel is null");
-	tun=mlvpn_rtun_wrr_choose();
-    }
+	index=selector % tunavail;
 
-    log_debug("flowselect", "%s selector %d avail %d index %d", tun->name, selector, tunavail, index);
+	LIST_FOREACH(tun, &rtuns, entries) {
+		if (!fallback && tun->status != MLVPN_AUTHOK)
+			continue;
+		if (count++ == index)
+			break;
+	}
 
-    return tun;
+	if (tun == NULL) {
+		log_warnx("flowselect", "tunnel is null");
+		tun=mlvpn_rtun_wrr_choose();
+	}
+
+	log_debug("flowselect", "%s selector %d avail %d index %d", tun->name, selector, tunavail, index);
+
+	return tun;
 }
 
 static void
