@@ -1338,40 +1338,57 @@ mlvpn_rtun_send_disconnect(mlvpn_tunnel_t *t)
     mlvpn_rtun_send(t, t->hpsbuf);
 }
 
-static void
-mlvpn_rtun_check_lossy(mlvpn_tunnel_t *tun)
-{
-    int loss = mlvpn_loss_ratio(tun);
-    int status_changed = 0;
-    if (loss >= tun->loss_tolerence && tun->status == MLVPN_AUTHOK) {
-        log_info("rtt", "%s packet loss reached threashold: %d%%/%d%%",
-            tun->name, loss, tun->loss_tolerence);
-        tun->status = MLVPN_LOSSY;
-        status_changed = 1;
-    } else if (loss < tun->loss_tolerence && tun->status == MLVPN_LOSSY) {
-        log_info("rtt", "%s packet loss acceptable again: %d%%/%d%%",
-            tun->name, loss, tun->loss_tolerence);
-        tun->status = MLVPN_AUTHOK;
-        status_changed = 1;
-    }
-    /* are all links in lossy mode ? switch to fallback ? */
-    if (status_changed) {
-        mlvpn_tunnel_t *t;
-        LIST_FOREACH(t, &rtuns, entries) {
-            if (! t->fallback_only && t->status != MLVPN_LOSSY) {
-                mlvpn_status.fallback_mode = 0;
-                mlvpn_rtun_wrr_reset(&rtuns, mlvpn_status.fallback_mode);
-                return;
-            }
-        }
-        if (mlvpn_options.fallback_available) {
-            log_info(NULL, "all tunnels are down or lossy, switch fallback mode");
-            mlvpn_status.fallback_mode = 1;
-            mlvpn_rtun_wrr_reset(&rtuns, mlvpn_status.fallback_mode);
-        } else {
-            log_info(NULL, "all tunnels are down or lossy but fallback is not available");
-        }
-    }
+static void mlvpn_rtun_check_lossy(mlvpn_tunnel_t *tun) {
+	int loss = mlvpn_loss_ratio(tun);
+	int status_changed = 0;
+	mlvpn_tunnel_t	*t;
+	double	avgrtt=0, cutoff;
+	int	tuntotal=0;
+
+	LIST_FOREACH(t, &rtuns, entries) {
+		avgrtt+=t->srtt;
+		tuntotal++;
+	}
+
+	if (tuntotal)
+		avgrtt/=tuntotal;
+
+	cutoff=avgrtt*1.5;
+
+	if (tun->status == MLVPN_AUTHOK) {
+		if (loss >= tun->loss_tolerence || tun->srtt >= cutoff) {
+			log_info("rtt", "%s packet loss reached threshold: %d%%/%d%% rtt %.1fms>%.1fms",
+			tun->name, loss, tun->loss_tolerence, tun->srtt, cutoff);
+			tun->status = MLVPN_LOSSY;
+			status_changed = 1;
+		}
+	} else if (tun->status == MLVPN_LOSSY) {
+		if (loss < tun->loss_tolerence && tun->srtt < cutoff) {
+			log_info("rtt", "%s packet loss acceptable again: %d%%/%d%% rtt %.1fms<%.1fms",
+			tun->name, loss, tun->loss_tolerence, tun->srtt, cutoff);
+			tun->status = MLVPN_AUTHOK;
+			status_changed = 1;
+		}
+	}
+
+	/* are all links in lossy mode ? switch to fallback ? */
+	if (status_changed) {
+		LIST_FOREACH(t, &rtuns, entries) {
+		if (! t->fallback_only && t->status != MLVPN_LOSSY) {
+			mlvpn_status.fallback_mode = 0;
+			mlvpn_rtun_wrr_reset(&rtuns, mlvpn_status.fallback_mode);
+		return;
+		}
+	}
+
+	if (mlvpn_options.fallback_available) {
+		log_info(NULL, "all tunnels are down or lossy, switch fallback mode");
+			mlvpn_status.fallback_mode = 1;
+			mlvpn_rtun_wrr_reset(&rtuns, mlvpn_status.fallback_mode);
+		} else {
+			log_info(NULL, "all tunnels are down or lossy but fallback is not available");
+		}
+	}
 }
 
 static void
