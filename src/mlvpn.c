@@ -199,7 +199,7 @@ static int mlvpn_tunnel_status_set(mlvpn_tunnel_t *t, int status) {
 
 	t->status=status;
 
-	uint64_t	now=mlvpn_timestamp64(ev_now(EV_DEFAULT_UC));
+	double	now=ev_now(EV_DEFAULT_UC);
 
 	if (status == MLVPN_AUTHOK)
 		t->status_lastup=now;
@@ -209,9 +209,10 @@ static int mlvpn_tunnel_status_set(mlvpn_tunnel_t *t, int status) {
 	return oldstatus != status;
 }
 
-static uint64_t mlvpn_tunnel_status_lastdown(mlvpn_tunnel_t *t) {
-	uint64_t	down=mlvpn_timestamp64(ev_now(EV_DEFAULT_UC));
-	return	down-t->status_lastdown;
+static double mlvpn_tunnel_status_lastdown(mlvpn_tunnel_t *t) {
+	double	down=ev_now(EV_DEFAULT_UC);
+	down-=t->status_lastdown;
+	return down;
 }
 
 int

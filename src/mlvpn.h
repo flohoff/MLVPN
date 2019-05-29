@@ -188,8 +188,8 @@ typedef struct mlvpn_tunnel_s
 
     struct addrinfo *addrinfo;
     enum chap_status status;    /* Auth status */
-    uint64_t	status_lastup;
-    uint64_t	status_lastdown;
+    ev_tstamp	status_lastup;
+    ev_tstamp	status_lastdown;
 
     ev_tstamp last_activity;
     ev_tstamp last_connection_attempt;
