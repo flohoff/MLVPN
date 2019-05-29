@@ -194,6 +194,26 @@ usage(char **argv)
     exit(2);
 }
 
+static int mlvpn_tunnel_status_set(mlvpn_tunnel_t *t, int status) {
+	int oldstatus=t->status;
+
+	t->status=status;
+
+	uint64_t	now=mlvpn_timestamp64(ev_now(EV_DEFAULT_UC));
+
+	if (status == MLVPN_AUTHOK)
+		t->status_lastup=now;
+	else
+		t->status_lastdown=now;
+
+	return oldstatus != status;
+}
+
+static uint64_t mlvpn_tunnel_status_lastdown(mlvpn_tunnel_t *t) {
+	uint64_t	down=mlvpn_timestamp64(ev_now(EV_DEFAULT_UC));
+	return	down-t->status_lastdown;
+}
+
 int
 mlvpn_sock_set_nonblocking(int fd)
 {
@@ -666,7 +686,7 @@ mlvpn_rtun_new(const char *name,
     new->fd = -1;
     new->server_mode = server_mode;
     new->weight = 1;
-    new->status = MLVPN_DISCONNECTED;
+    mlvpn_tunnel_status_set(new, MLVPN_DISCONNECTED);
     new->addrinfo = NULL;
     new->sentpackets = 0;
     new->sentbytes = 0;
@@ -1095,7 +1115,7 @@ mlvpn_rtun_status_up(mlvpn_tunnel_t *t)
     char **env;
     int env_len;
     ev_tstamp now = ev_now(EV_DEFAULT_UC);
-    t->status = MLVPN_AUTHOK;
+    mlvpn_tunnel_status_set(t, MLVPN_AUTHOK);
     t->next_keepalive = NEXT_KEEPALIVE(now, t);
     t->last_activity = now;
     t->last_keepalive_ack = now;
@@ -1126,7 +1146,7 @@ mlvpn_rtun_status_down(mlvpn_tunnel_t *t)
     char **env;
     int env_len;
     enum chap_status old_status = t->status;
-    t->status = MLVPN_DISCONNECTED;
+    mlvpn_tunnel_status_set(t, MLVPN_DISCONNECTED);
     t->disconnects++;
     mlvpn_pktbuffer_reset(t->sbuf);
     mlvpn_pktbuffer_reset(t->hpsbuf);
@@ -1187,7 +1207,7 @@ mlvpn_rtun_challenge_send(mlvpn_tunnel_t *t)
     pkt->len = 2;
     pkt->type = MLVPN_PKT_AUTH;
 
-    t->status = MLVPN_AUTHSENT;
+    mlvpn_tunnel_status_set(t, MLVPN_AUTHSENT);
     log_debug("protocol", "%s mlvpn_rtun_challenge_send", t->name);
 }
 
@@ -1210,7 +1230,7 @@ mlvpn_rtun_send_auth(mlvpn_tunnel_t *t)
             pkt->len = 2;
             pkt->type = MLVPN_PKT_AUTH_OK;
             if (t->status < MLVPN_AUTHOK)
-                t->status = MLVPN_AUTHSENT;
+		mlvpn_tunnel_status_set(t, MLVPN_AUTHSENT);
             log_debug("protocol", "%s sending 'OK'", t->name);
             log_info("protocol", "%s authenticated", t->name);
             mlvpn_rtun_tick(t);
@@ -1364,6 +1384,7 @@ mlvpn_rtun_send_disconnect(mlvpn_tunnel_t *t)
     mlvpn_rtun_send(t, t->hpsbuf);
 }
 
+#define TUNNEL_UPDELAY	10
 static void mlvpn_rtun_check_lossy(mlvpn_tunnel_t *tun, double cutoff) {
 	int loss = mlvpn_loss_ratio(tun);
 	int status_changed = 0;
@@ -1373,14 +1394,18 @@ static void mlvpn_rtun_check_lossy(mlvpn_tunnel_t *tun, double cutoff) {
 		if (loss >= tun->loss_tolerence || tun->srtt >= cutoff) {
 			log_info("rtt", "%s packet loss reached threshold: %d%%/%d%% rtt %.1fms>%.1fms",
 			tun->name, loss, tun->loss_tolerence, tun->srtt, cutoff);
-			tun->status = MLVPN_LOSSY;
+			mlvpn_tunnel_status_set(tun, MLVPN_LOSSY);
 			status_changed = 1;
 		}
 	} else if (tun->status == MLVPN_LOSSY) {
-		if (loss < tun->loss_tolerence && tun->srtt < cutoff) {
+		if (loss < tun->loss_tolerence
+				&& tun->srtt < cutoff
+				&& mlvpn_tunnel_status_lastdown(tun) > TUNNEL_UPDELAY) {
+
 			log_info("rtt", "%s packet loss acceptable again: %d%%/%d%% rtt %.1fms<%.1fms",
+
 			tun->name, loss, tun->loss_tolerence, tun->srtt, cutoff);
-			tun->status = MLVPN_AUTHOK;
+			mlvpn_tunnel_status_set(tun, MLVPN_AUTHOK);
 			status_changed = 1;
 		}
 	}
