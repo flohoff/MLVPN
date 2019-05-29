@@ -295,14 +295,16 @@ mlvpn_rtun_reorder_drain(uint32_t reorder)
 static void
 mlvpn_loss_update(mlvpn_tunnel_t *tun, uint64_t seq)
 {
+
+    if (tun->seq_last + 1 != seq) {
+        tun->ooopkts++;
+    }
+
     if (seq > tun->seq_last + 64) {
         /* consider a connection reset. */
         tun->seq_vect = (uint64_t) -1;
         tun->seq_last = seq;
     } else if (seq > tun->seq_last) {
-	if (tun->seq_last + 1 != seq) {
-		tun->ooopkts++;
-	}
         /* new sequence number -- recent message arrive */
         tun->seq_vect <<= seq - tun->seq_last;
         tun->seq_vect |= 1;
