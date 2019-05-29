@@ -166,7 +166,7 @@ static void mlvpn_update_status();
 static int mlvpn_rtun_bind(mlvpn_tunnel_t *t);
 static void update_process_title();
 static void mlvpn_tuntap_init();
-static void mlvpn_rtun_check_lossy(mlvpn_tunnel_t *tun, double cutoffrtt);
+static void mlvpn_rtun_check_lossy(mlvpn_tunnel_t *tun, double lower, double upper);
 static int
 mlvpn_protocol_read(mlvpn_tunnel_t *tun,
                     mlvpn_pkt_t *rawpkt,
@@ -853,7 +853,7 @@ static void
 mlvpn_rtt_calc() {
 	mlvpn_tunnel_t *t;
 
-	double	avgrtt=0, cutoff;
+	double	avgrtt=0, lower, upper;
 	int	tuntotal=0;
 
 	LIST_FOREACH(t, &rtuns, entries) {
@@ -876,10 +876,13 @@ mlvpn_rtt_calc() {
 	if (tuntotal)
 		avgrtt/=tuntotal;
 
-	cutoff=((double) avgrtt) * 1.5;
+#define RTT_ABSOLUTE_UPPER	50
+
+	upper=((double) avgrtt) * 1.5 + RTT_ABSOLUTE_UPPER;
+	lower=((double) avgrtt) * 1.3;
 
 	LIST_FOREACH(t, &rtuns, entries) {
-		mlvpn_rtun_check_lossy(t, cutoff);
+		mlvpn_rtun_check_lossy(t, lower, upper);
 	}
 }
 
@@ -1388,26 +1391,25 @@ mlvpn_rtun_send_disconnect(mlvpn_tunnel_t *t)
 }
 
 #define TUNNEL_UPDELAY	10
-static void mlvpn_rtun_check_lossy(mlvpn_tunnel_t *tun, double cutoff) {
+static void mlvpn_rtun_check_lossy(mlvpn_tunnel_t *tun, double lower, double upper) {
 	int loss = mlvpn_loss_ratio(tun);
 	int status_changed = 0;
 	mlvpn_tunnel_t	*t;
 
 	if (tun->status == MLVPN_AUTHOK) {
-		if (loss >= tun->loss_tolerence || tun->srtt >= cutoff) {
+		if (loss >= tun->loss_tolerence || tun->srtt >= upper) {
 			log_info("rtt", "%s packet loss reached threshold: %d%%/%d%% rtt %.1fms>%.1fms",
-			tun->name, loss, tun->loss_tolerence, tun->srtt, cutoff);
+				tun->name, loss, tun->loss_tolerence, tun->srtt, upper);
 			mlvpn_tunnel_status_set(tun, MLVPN_LOSSY);
 			status_changed = 1;
 		}
 	} else if (tun->status == MLVPN_LOSSY) {
 		if (loss < tun->loss_tolerence
-				&& tun->srtt < cutoff
+				&& tun->srtt < lower
 				&& mlvpn_tunnel_status_lastdown(tun) > TUNNEL_UPDELAY) {
 
 			log_info("rtt", "%s packet loss acceptable again: %d%%/%d%% rtt %.1fms<%.1fms",
-
-			tun->name, loss, tun->loss_tolerence, tun->srtt, cutoff);
+				tun->name, loss, tun->loss_tolerence, tun->srtt, lower);
 			mlvpn_tunnel_status_set(tun, MLVPN_AUTHOK);
 			status_changed = 1;
 		}
