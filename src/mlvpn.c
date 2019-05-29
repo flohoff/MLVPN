@@ -879,7 +879,7 @@ mlvpn_statistics_log()
     LIST_FOREACH(t, &rtuns, entries)
     {
        int loss = mlvpn_loss_ratio(t);
-       log_info("stats", "%s status %d weight %5.1f rtt %5.0f rttvar %4.0f loss %d%% pkt/s %5.0f %5.0f KBits/s %5.1f %5.1f",
+       log_info("stats", "%s status %d weight %5.1f rtt %5.0f rttvar %4.0f loss %d%% pkt/s %5.0f %5.0f KBits/s %6.1f %6.1f",
            t->name, t->status, t->weight, t->srtt, t->rttvar, loss,
            (double) (t->sentpackets-t->statslast.sentpackets)/STATS_INTERVAL,
            (double) (t->recvpackets-t->statslast.recvpackets)/STATS_INTERVAL,
