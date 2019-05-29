@@ -81,9 +81,8 @@ char *_progname;
 static char **saved_argv;
 struct ev_loop *loop;
 static ev_timer reorder_drain_timeout;
-static ev_timer reorder_adjust_rtt_timeout;
-static ev_timer wrr_rtt_recalc_timeout;
 static ev_timer statistics_log_timeout;
+static ev_timer rtt_timeout;
 char *status_command = NULL;
 char *process_title = NULL;
 int logdebug = 0;
@@ -154,7 +153,7 @@ static void mlvpn_rtun_write(EV_P_ ev_io *w, int revents);
 static uint32_t mlvpn_rtun_reorder_drain(uint32_t reorder);
 static void mlvpn_rtun_reorder_drain_timeout(EV_P_ ev_timer *w, int revents);
 static void mlvpn_rtun_check_timeout(EV_P_ ev_timer *w, int revents);
-static void mlvpn_rtun_adjust_reorder_timeout(EV_P_ ev_timer *w, int revents);
+static void mlvpn_rtun_adjust_reorder_timeout();
 static void mlvpn_rtun_send_keepalive(ev_tstamp now, mlvpn_tunnel_t *t);
 static void mlvpn_rtun_send_disconnect(mlvpn_tunnel_t *t);
 static int mlvpn_rtun_send(mlvpn_tunnel_t *tun, circular_buffer_t *pktbuf);
@@ -504,25 +503,16 @@ mlvpn_protocol_read(
         tun->saved_timestamp = proto.timestamp;
         tun->saved_timestamp_received_at = now64;
     }
+
+    /* We want average rtt per time not per packet - so just add up here*/
     if (proto.timestamp_reply != (uint16_t)-1) {
         uint16_t now16 = mlvpn_timestamp16(now64);
         double R = mlvpn_timestamp16_diff(now16, proto.timestamp_reply);
-        if (R < 5000) { /* ignore large values, e.g. server was Ctrl-Zed */
-            if (!tun->rtt_hit) { /* first measurement */
-                tun->srtt = R;
-                tun->rttvar = R / 2;
-                tun->rtt_hit = 1;
-            } else {
-                const double alpha = 1.0 / 8.0;
-                const double beta = 1.0 / 4.0;
-                tun->rttvar = (1 - beta) * tun->rttvar + (beta * fabs(tun->srtt - R));
-                tun->srtt = (1 - alpha) * tun->srtt + (alpha * R);
-            }
-        }
-        log_debug("rtt", "%s %ums srtt %ums loss ratio: %d seqvect: %016lx",
-            tun->name, (unsigned int)R, (unsigned int)tun->srtt,
-            mlvpn_loss_ratio(tun), tun->seq_vect);
+
+	tun->rtt.sum+=R;
+	tun->rtt.count++;
     }
+
     return 0;
 fail:
     return -1;
@@ -835,6 +825,7 @@ mlvpn_rtun_recalc_weight_rtt()
 }
 
 #define STATS_INTERVAL 5
+
 static void
 mlvpn_statistics_log()
 {
@@ -867,6 +858,25 @@ mlvpn_statistics_log()
        t->statslast.recvbytes=t->recvbytes;
 
     }
+}
+
+#define RTT_INTERVAL 2
+static void
+mlvpn_rtt_calc() {
+	mlvpn_tunnel_t *t;
+
+	LIST_FOREACH(t, &rtuns, entries) {
+		if (!t->rtt.count)
+			continue;
+
+		t->srtt=t->rtt.sum/t->rtt.count;
+
+		t->rtt.sum=0;
+		t->rtt.count=0;
+	}
+
+	mlvpn_rtun_recalc_weight_rtt();
+	mlvpn_rtun_adjust_reorder_timeout();
 }
 
 static int
@@ -1419,7 +1429,7 @@ static double reorder_timeout_floating = 0.8;
  * and slowest link - Whatever is greater
  */
 static void
-mlvpn_rtun_adjust_reorder_timeout(EV_P_ ev_timer *w, int revents)
+mlvpn_rtun_adjust_reorder_timeout()
 {
     mlvpn_tunnel_t *t;
     double max_rttvar = 0;
@@ -1733,14 +1743,11 @@ main(int argc, char **argv)
     ev_io_set(&tuntap.io_write, tuntap.fd, EV_WRITE);
     ev_io_start(loop, &tuntap.io_read);
 
-    ev_timer_init(&reorder_adjust_rtt_timeout, mlvpn_rtun_adjust_reorder_timeout, 0., 1.0);
-    ev_timer_start(EV_A_ &reorder_adjust_rtt_timeout);
-
-    ev_timer_init(&wrr_rtt_recalc_timeout, mlvpn_rtun_recalc_weight_rtt, 0., 1.0);
-    ev_timer_start(EV_A_ &wrr_rtt_recalc_timeout);
-
     ev_timer_init(&statistics_log_timeout, mlvpn_statistics_log, 0., STATS_INTERVAL);
     ev_timer_start(EV_A_ &statistics_log_timeout);
+
+    ev_timer_init(&rtt_timeout, mlvpn_rtt_calc, 0., RTT_INTERVAL);
+    ev_timer_start(EV_A_ &rtt_timeout);
 
     priv_set_running_state();
 

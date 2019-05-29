@@ -159,9 +159,15 @@ typedef struct mlvpn_tunnel_s
     uint64_t saved_timestamp_received_at;
     uint64_t seq_last;
     uint64_t seq_vect;
+
     int rtt_hit;
     double srtt;
     double rttvar;
+    struct {
+	double	sum;
+	int	count;
+    } rtt;
+
     double weight;        /* For weight round robin */
     uint32_t flow_id;
     uint64_t sentpackets; /* 64bit packets sent counter */
