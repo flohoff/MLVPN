@@ -166,6 +166,7 @@ static void mlvpn_update_status();
 static int mlvpn_rtun_bind(mlvpn_tunnel_t *t);
 static void update_process_title();
 static void mlvpn_tuntap_init();
+static void mlvpn_rtun_check_lossy(mlvpn_tunnel_t *tun, double cutoffrtt);
 static int
 mlvpn_protocol_read(mlvpn_tunnel_t *tun,
                     mlvpn_pkt_t *rawpkt,
@@ -824,8 +825,42 @@ mlvpn_rtun_recalc_weight_rtt()
     mlvpn_rtun_wrr_reset(&rtuns, mlvpn_status.fallback_mode);
 }
 
-#define STATS_INTERVAL 5
+#define RTT_INTERVAL 2
+static void
+mlvpn_rtt_calc() {
+	mlvpn_tunnel_t *t;
 
+	double	avgrtt=0, cutoff;
+	int	tuntotal=0;
+
+	LIST_FOREACH(t, &rtuns, entries) {
+		if (!t->rtt.count)
+			continue;
+
+		t->srtt=t->rtt.sum/t->rtt.count;
+
+		t->rtt.sum=0;
+		t->rtt.count=0;
+
+		avgrtt+=t->srtt;
+		tuntotal++;
+	}
+
+	mlvpn_rtun_recalc_weight_rtt();
+	mlvpn_rtun_adjust_reorder_timeout();
+
+
+	if (tuntotal)
+		avgrtt/=tuntotal;
+
+	cutoff=avgrtt*1.5;
+
+	LIST_FOREACH(t, &rtuns, entries) {
+		mlvpn_rtun_check_lossy(t, cutoff);
+	}
+}
+
+#define STATS_INTERVAL 5
 static void
 mlvpn_statistics_log()
 {
@@ -858,25 +893,6 @@ mlvpn_statistics_log()
        t->statslast.recvbytes=t->recvbytes;
 
     }
-}
-
-#define RTT_INTERVAL 2
-static void
-mlvpn_rtt_calc() {
-	mlvpn_tunnel_t *t;
-
-	LIST_FOREACH(t, &rtuns, entries) {
-		if (!t->rtt.count)
-			continue;
-
-		t->srtt=t->rtt.sum/t->rtt.count;
-
-		t->rtt.sum=0;
-		t->rtt.count=0;
-	}
-
-	mlvpn_rtun_recalc_weight_rtt();
-	mlvpn_rtun_adjust_reorder_timeout();
 }
 
 static int
@@ -1348,22 +1364,10 @@ mlvpn_rtun_send_disconnect(mlvpn_tunnel_t *t)
     mlvpn_rtun_send(t, t->hpsbuf);
 }
 
-static void mlvpn_rtun_check_lossy(mlvpn_tunnel_t *tun) {
+static void mlvpn_rtun_check_lossy(mlvpn_tunnel_t *tun, double cutoff) {
 	int loss = mlvpn_loss_ratio(tun);
 	int status_changed = 0;
 	mlvpn_tunnel_t	*t;
-	double	avgrtt=0, cutoff;
-	int	tuntotal=0;
-
-	LIST_FOREACH(t, &rtuns, entries) {
-		avgrtt+=t->srtt;
-		tuntotal++;
-	}
-
-	if (tuntotal)
-		avgrtt/=tuntotal;
-
-	cutoff=avgrtt*1.5;
 
 	if (tun->status == MLVPN_AUTHOK) {
 		if (loss >= tun->loss_tolerence || tun->srtt >= cutoff) {
@@ -1420,7 +1424,6 @@ mlvpn_rtun_check_timeout(EV_P_ ev_timer *w, int revents)
     if (!ev_is_active(&t->io_write) && ! mlvpn_cb_is_empty(t->hpsbuf)) {
         ev_io_start(EV_A_ &t->io_write);
     }
-    mlvpn_rtun_check_lossy(t);
 }
 
 static double reorder_timeout_floating = 0.8;
