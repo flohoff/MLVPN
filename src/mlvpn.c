@@ -912,7 +912,7 @@ mlvpn_statistics_log()
        int loss = mlvpn_loss_ratio(t);
        log_info("stats", "%s status %d rtt %5.0f loss %d%% ooo %3d pkt/s %5.0f %5.0f KBits/s %6.1f %6.1f",
            t->name, t->status, t->srtt, loss,
-	   (double) (t->ooopkts-t->statslast.ooopkts),
+	   t->ooopkts-t->statslast.ooopkts,
            (double) (t->sentpackets-t->statslast.sentpackets)/STATS_INTERVAL,
            (double) (t->recvpackets-t->statslast.recvpackets)/STATS_INTERVAL,
            (double) (t->sentbytes-t->statslast.sentbytes)/STATS_INTERVAL/1024*8,
