@@ -174,11 +174,13 @@ typedef struct mlvpn_tunnel_s
     uint64_t recvpackets; /* 64bit packets recv counter */
     uint64_t sentbytes;   /* 64bit bytes sent counter */
     uint64_t recvbytes;   /* 64bit bytes recv counter */
+    uint64_t ooopkts;
     struct {
         uint64_t sentpackets; /* 64bit packets sent counter */
         uint64_t recvpackets; /* 64bit packets recv counter */
         uint64_t sentbytes;   /* 64bit bytes sent counter */
         uint64_t recvbytes;   /* 64bit bytes recv counter */
+	uint64_t ooopkts;
     } statslast;
     uint32_t timeout;     /* configured timeout in seconds */
     uint32_t bandwidth;   /* bandwidth in bytes per second */

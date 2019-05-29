@@ -300,6 +300,9 @@ mlvpn_loss_update(mlvpn_tunnel_t *tun, uint64_t seq)
         tun->seq_vect = (uint64_t) -1;
         tun->seq_last = seq;
     } else if (seq > tun->seq_last) {
+	if (tun->seq_last + 1 != seq) {
+		tun->ooopkts++;
+	}
         /* new sequence number -- recent message arrive */
         tun->seq_vect <<= seq - tun->seq_last;
         tun->seq_vect |= 1;
@@ -905,8 +908,9 @@ mlvpn_statistics_log()
     LIST_FOREACH(t, &rtuns, entries)
     {
        int loss = mlvpn_loss_ratio(t);
-       log_info("stats", "%s status %d weight %5.1f rtt %5.0f rttvar %4.0f loss %d%% pkt/s %5.0f %5.0f KBits/s %6.1f %6.1f",
-           t->name, t->status, t->weight, t->srtt, t->rttvar, loss,
+       log_info("stats", "%s status %d weight %5.1f rtt %5.0f loss %d%% ooo %4.1f pkt/s %5.0f %5.0f KBits/s %6.1f %6.1f",
+           t->name, t->status, t->weight, t->srtt, loss,
+	   (double) (t->ooopkts-t->statslast.ooopkts)/STATS_INTERVAL,
            (double) (t->sentpackets-t->statslast.sentpackets)/STATS_INTERVAL,
            (double) (t->recvpackets-t->statslast.recvpackets)/STATS_INTERVAL,
            (double) (t->sentbytes-t->statslast.sentbytes)/STATS_INTERVAL/1024*8,
@@ -917,6 +921,7 @@ mlvpn_statistics_log()
        t->statslast.recvpackets=t->recvpackets;
        t->statslast.sentbytes=t->sentbytes;
        t->statslast.recvbytes=t->recvbytes;
+       t->statslast.ooopkts=t->ooopkts;
 
     }
 }
