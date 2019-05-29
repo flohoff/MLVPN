@@ -311,6 +311,10 @@ mlvpn_loss_update(mlvpn_tunnel_t *tun, uint64_t seq)
         tun->seq_last = seq;
     } else if (seq >= tun->seq_last - 63) {
         tun->seq_vect |= (1 << (tun->seq_last - seq));
+    } else {
+        /* Counter wrap or restart - seq < tun->seq_last - 63*/
+        tun->seq_vect = (uint64_t) -1;
+        tun->seq_last = seq;
     }
 }
 
