@@ -846,7 +846,9 @@ mlvpn_rtun_recalc_weight_rtt()
     mlvpn_rtun_wrr_reset(&rtuns, mlvpn_status.fallback_mode);
 }
 
-#define RTT_INTERVAL 2
+#define RTT_INTERVAL 1
+#define RTT_AVERAGE  10
+
 static void
 mlvpn_rtt_calc() {
 	mlvpn_tunnel_t *t;
@@ -858,7 +860,8 @@ mlvpn_rtt_calc() {
 		if (!t->rtt.count)
 			continue;
 
-		t->srtt=t->rtt.sum/t->rtt.count;
+		/* Sliding average over the last RTT_AVERAGE*RTT_INTERVAL seconds */
+		t->srtt=(t->srtt * (RTT_AVERAGE-1) + (t->rtt.sum/t->rtt.count))/RTT_AVERAGE;
 
 		t->rtt.sum=0;
 		t->rtt.count=0;
@@ -870,11 +873,10 @@ mlvpn_rtt_calc() {
 	mlvpn_rtun_recalc_weight_rtt();
 	mlvpn_rtun_adjust_reorder_timeout();
 
-
 	if (tuntotal)
 		avgrtt/=tuntotal;
 
-	cutoff=avgrtt*1.5;
+	cutoff=((double) avgrtt) * 1.5;
 
 	LIST_FOREACH(t, &rtuns, entries) {
 		mlvpn_rtun_check_lossy(t, cutoff);
