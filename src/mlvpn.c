@@ -872,8 +872,10 @@ mlvpn_rtt_calc() {
 		if (!t->rtt.count || t->status == MLVPN_DISCONNECTED)
 			continue;
 
-		/* Sliding average over the last RTT_AVERAGE*RTT_INTERVAL seconds */
-		t->srtt=(t->srtt * (RTT_AVERAGE-1) + (t->rtt.sum/t->rtt.count))/RTT_AVERAGE;
+		if (t->rtt.count) {
+			/* Sliding average over the last RTT_AVERAGE*RTT_INTERVAL seconds */
+			t->srtt=(t->srtt * (RTT_AVERAGE-1) + (t->rtt.sum/t->rtt.count))/RTT_AVERAGE;
+		}
 
 		t->rtt.sum=0;
 		t->rtt.count=0;
@@ -885,22 +887,19 @@ mlvpn_rtt_calc() {
 	mlvpn_rtun_recalc_weight_rtt();
 	mlvpn_rtun_adjust_reorder_timeout();
 
-	/* We hadnt had any packets */
-	if (avgrtt == 0)
-		avgrtt=RTT_START_DEFAULT;
-
-	if (tuntotal)
+	if (avgrtt > 0 && tuntotal > 0) {
 		avgrtt/=tuntotal;
 
 #define RTT_ABSOLUTE_UPPER	50
 
-	upper=((double) avgrtt) * 1.5 + RTT_ABSOLUTE_UPPER;
-	lower=((double) avgrtt) * 1.3;
+		upper=((double) avgrtt) * 1.5 + RTT_ABSOLUTE_UPPER;
+		lower=((double) avgrtt) * 1.3;
 
-	LIST_FOREACH(t, &rtuns, entries) {
-		if (t->status == MLVPN_DISCONNECTED)
-			continue;
-		mlvpn_rtun_check_lossy(t, lower, upper);
+		LIST_FOREACH(t, &rtuns, entries) {
+			if (t->status == MLVPN_DISCONNECTED)
+				continue;
+			mlvpn_rtun_check_lossy(t, lower, upper);
+		}
 	}
 }
 
