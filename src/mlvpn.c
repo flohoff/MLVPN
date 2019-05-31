@@ -65,6 +65,7 @@
 #include <sys/endian.h>
 #endif
 
+
 #ifdef HAVE_DARWIN
 #include <libkern/OSByteOrder.h>
 #define be16toh OSSwapBigToHostInt16
@@ -74,6 +75,10 @@
 #define htobe32 OSSwapHostToBigInt32
 #define htobe64 OSSwapHostToBigInt64
 #endif
+
+#define RTT_INTERVAL		1
+#define RTT_AVERAGE		10
+#define RTT_START_DEFAULT	1000
 
 /* GLOBALS */
 struct tuntap_s tuntap;
@@ -705,7 +710,7 @@ mlvpn_rtun_new(const char *name,
     new->expected_receiver_seq = 0;
     new->saved_timestamp = -1;
     new->saved_timestamp_received_at = 0;
-    new->srtt = 1000;
+    new->srtt = RTT_START_DEFAULT;
     new->rttvar = 500;
     new->rtt_hit = 0;
     new->seq_last = 0;
@@ -855,8 +860,6 @@ mlvpn_rtun_recalc_weight_rtt()
     mlvpn_rtun_wrr_reset(&rtuns, mlvpn_status.fallback_mode);
 }
 
-#define RTT_INTERVAL 1
-#define RTT_AVERAGE  10
 
 static void
 mlvpn_rtt_calc() {
@@ -881,6 +884,10 @@ mlvpn_rtt_calc() {
 
 	mlvpn_rtun_recalc_weight_rtt();
 	mlvpn_rtun_adjust_reorder_timeout();
+
+	/* We hadnt had any packets */
+	if (avgrtt == 0)
+		avgrtt=RTT_START_DEFAULT;
 
 	if (tuntotal)
 		avgrtt/=tuntotal;
