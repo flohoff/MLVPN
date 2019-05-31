@@ -866,7 +866,7 @@ mlvpn_rtt_calc() {
 	int	tuntotal=0;
 
 	LIST_FOREACH(t, &rtuns, entries) {
-		if (!t->rtt.count)
+		if (!t->rtt.count || t->status == MLVPN_DISCONNECTED)
 			continue;
 
 		/* Sliding average over the last RTT_AVERAGE*RTT_INTERVAL seconds */
@@ -891,6 +891,8 @@ mlvpn_rtt_calc() {
 	lower=((double) avgrtt) * 1.3;
 
 	LIST_FOREACH(t, &rtuns, entries) {
+		if (t->status == MLVPN_DISCONNECTED)
+			continue;
 		mlvpn_rtun_check_lossy(t, lower, upper);
 	}
 }
