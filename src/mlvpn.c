@@ -892,7 +892,7 @@ mlvpn_rtt_calc() {
 
 #define RTT_ABSOLUTE_UPPER	50
 
-		upper=((double) avgrtt) * 1.5 + RTT_ABSOLUTE_UPPER;
+		upper=MIN(1500,((double) avgrtt) * 1.5 + RTT_ABSOLUTE_UPPER);
 		lower=((double) avgrtt) * 1.3;
 
 		LIST_FOREACH(t, &rtuns, entries) {
