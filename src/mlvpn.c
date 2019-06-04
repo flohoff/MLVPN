@@ -880,7 +880,8 @@ mlvpn_rtt_calc() {
 		t->rtt.sum=0;
 		t->rtt.count=0;
 
-		avgrtt+=t->srtt;
+		/* We dont want a single high rtt skyrocket everything */
+		avgrtt+=MIN(1000,t->srtt);
 		tuntotal++;
 	}
 
@@ -892,7 +893,7 @@ mlvpn_rtt_calc() {
 
 #define RTT_ABSOLUTE_UPPER	50
 
-		upper=MIN(1500,((double) avgrtt) * 1.5 + RTT_ABSOLUTE_UPPER);
+		upper=((double) avgrtt) * 1.5 + RTT_ABSOLUTE_UPPER;
 		lower=((double) avgrtt) * 1.3;
 
 		LIST_FOREACH(t, &rtuns, entries) {
