@@ -16,3 +16,22 @@ deploy1604:
     - gs-ci-deb-upload
   dependencies:
     - build1604
+
+build2004:
+  image: ubuntu2004-amd64
+  stage: build
+  script:
+    - gs-ci-build
+  artifacts:
+    expire_in: 1 week
+    when: always
+    paths:
+      - debs/
+
+deploy2004:
+  image: ubuntu2004-amd64
+  stage: deploy
+  script:
+    - gs-ci-deb-upload
+  dependencies:
+    - build2004
